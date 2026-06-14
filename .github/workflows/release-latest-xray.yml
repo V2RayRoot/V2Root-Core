@@ -87,6 +87,8 @@ jobs:
           sudo apt-get install --yes --no-install-recommends \
             gcc-aarch64-linux-gnu \
             gcc-i686-linux-gnu \
+            libc6-dev-arm64-cross \
+            libc6-dev-i386-cross \
             mingw-w64
 
       - name: Add V2Root package to Xray
