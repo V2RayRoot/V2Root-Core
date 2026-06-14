@@ -39,8 +39,9 @@ version is available, it:
 10. Publishes a tested GitHub Release.
 11. Updates this README with the version and Tehran build time.
 
-Releases use the `v2root-<xray-tag>` naming convention. Existing versions are
-skipped unless a maintainer explicitly requests a force rebuild.
+Releases use the `v2root-<xray-tag>` naming convention. Existing releases are
+never deleted or overwritten. A manual force rebuild creates a separate,
+immutable tag such as `v2root-<xray-tag>-build-<run-number>`.
 
 ## C API Reference
 

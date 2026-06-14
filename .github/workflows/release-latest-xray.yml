@@ -25,6 +25,8 @@ jobs:
       should_build: ${{ steps.release.outputs.should_build }}
       xray_tag: ${{ steps.release.outputs.xray_tag }}
       release_tag: ${{ steps.release.outputs.release_tag }}
+      build_code_version: ${{ steps.release.outputs.build_code_version }}
+      build_time_tehran: ${{ steps.release.outputs.build_time_tehran }}
     steps:
       - name: Find latest stable Xray release
         id: release
@@ -41,16 +43,23 @@ jobs:
           release_tag="v2root-${xray_tag}"
           should_build=true
 
-          if [[ "$FORCE_BUILD" != "true" ]] &&
-             gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${release_tag}" \
+          if gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${release_tag}" \
                >/dev/null 2>&1; then
-            should_build=false
+            if [[ "$FORCE_BUILD" == "true" ]]; then
+              release_tag="${release_tag}-build-${GITHUB_RUN_NUMBER}"
+            else
+              should_build=false
+            fi
           fi
+          build_time_tehran="$(TZ=Asia/Tehran date '+%Y-%m-%d %H:%M:%S %z')"
+          build_code_version="$GITHUB_RUN_NUMBER"
 
           {
             echo "xray_tag=$xray_tag"
             echo "release_tag=$release_tag"
             echo "should_build=$should_build"
+            echo "build_code_version=$build_code_version"
+            echo "build_time_tehran=$build_time_tehran"
           } >> "$GITHUB_OUTPUT"
 
           echo "Latest Xray: $xray_tag"
@@ -102,37 +111,47 @@ jobs:
         working-directory: xray-core
         env:
           CGO_ENABLED: "1"
+          BUILD_VERSION: ${{ needs.discover.outputs.xray_tag }}
+          BUILD_RELEASE_DATE: ${{ needs.discover.outputs.build_time_tehran }}
+          BUILD_CODE_VERSION: ${{ needs.discover.outputs.build_code_version }}
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist
+          build_ldflags="-s -w \
+            -X 'main.version=${BUILD_VERSION}' \
+            -X 'main.releaseDate=${BUILD_RELEASE_DATE}' \
+            -X 'main.buildCodeVersion=${BUILD_CODE_VERSION}'"
 
           GOOS=linux GOARCH=amd64 \
             go build -trimpath -buildmode=c-shared \
-            -ldflags="-s -w" -o dist/xray-linux-amd64.so ./v2root
+            -ldflags="$build_ldflags" -o dist/xray-linux-amd64.so ./v2root
 
           GOOS=linux GOARCH=arm64 CC=aarch64-linux-gnu-gcc \
             go build -trimpath -buildmode=c-shared \
-            -ldflags="-s -w" -o dist/xray-linux-arm64.so ./v2root
+            -ldflags="$build_ldflags" -o dist/xray-linux-arm64.so ./v2root
 
           GOOS=linux GOARCH=386 CC=i686-linux-gnu-gcc \
             go build -trimpath -buildmode=c-shared \
-            -ldflags="-s -w" -o dist/xray-linux-386.so ./v2root
+            -ldflags="$build_ldflags" -o dist/xray-linux-386.so ./v2root
 
           GOOS=windows GOARCH=amd64 CC=x86_64-w64-mingw32-gcc \
             go build -trimpath -buildmode=c-shared \
-            -ldflags="-s -w" -o dist/xray-windows-amd64.dll ./v2root
+            -ldflags="$build_ldflags" -o dist/xray-windows-amd64.dll ./v2root
 
           GOOS=windows GOARCH=386 CC=i686-w64-mingw32-gcc \
             go build -trimpath -buildmode=c-shared \
-            -ldflags="-s -w" -o dist/xray-windows-386.dll ./v2root
+            -ldflags="$build_ldflags" -o dist/xray-windows-386.dll ./v2root
 
       - name: Exercise every exported API function
         shell: bash
         run: |
           set -euo pipefail
           python3 v2root-core/tests/smoke_shared_library.py \
-            xray-core/dist/xray-linux-amd64.so
+            xray-core/dist/xray-linux-amd64.so \
+            --expected-version "${{ needs.discover.outputs.xray_tag }}" \
+            --expected-release-date "${{ needs.discover.outputs.build_time_tehran }}" \
+            --expected-code-version "${{ needs.discover.outputs.build_code_version }}"
 
       - name: Verify Windows export tables
         shell: bash
@@ -189,11 +208,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          build_time="$(date '+%Y-%m-%d %H:%M %Z')"
           python3 scripts/update_release_metadata.py \
             --xray-version "$XRAY_TAG" \
             --release-tag "$RELEASE_TAG" \
-            --build-time-tehran "$build_time"
+            --build-time-tehran "${{ needs.discover.outputs.build_time_tehran }}"
 
           if ! git diff --quiet -- README.md; then
             git config user.name "v2rayroot"
@@ -208,19 +226,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.discover.outputs.release_tag }}
           XRAY_TAG: ${{ needs.discover.outputs.xray_tag }}
-          FORCE_BUILD: ${{ inputs.force || false }}
         shell: bash
         run: |
           set -euo pipefail
-
-          if [[ "$FORCE_BUILD" == "true" ]] &&
-             gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
-               >/dev/null 2>&1; then
-            gh release delete "$RELEASE_TAG" \
-              --repo "$GITHUB_REPOSITORY" \
-              --cleanup-tag \
-              --yes
-          fi
 
           notes="$(
             cat <<EOF

@@ -99,6 +99,9 @@ def require_json(value: str, context: str) -> object:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("library", type=Path)
+    parser.add_argument("--expected-version")
+    parser.add_argument("--expected-release-date")
+    parser.add_argument("--expected-code-version", type=int)
     args = parser.parse_args()
     api = V2RootLibrary(args.library.resolve())
 
@@ -113,6 +116,12 @@ def main() -> None:
 
         version = require_json(api.text("GetVersionInfo"), "GetVersionInfo")
         assert {"codeVersion", "version", "releaseDate"} <= set(version)
+        if args.expected_version is not None:
+            assert version["version"] == args.expected_version, version
+        if args.expected_release_date is not None:
+            assert version["releaseDate"] == args.expected_release_date, version
+        if args.expected_code_version is not None:
+            assert version["codeVersion"] == args.expected_code_version, version
 
         invalid = require_json(
             api.text("ValidateConfig", b"", b"{}"), "ValidateConfig"

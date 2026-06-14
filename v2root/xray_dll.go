@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -43,10 +44,10 @@ var (
 	lastTotalDownlink int64
 	statsMutex        sync.Mutex
 
-	// Versioning information
-	codeVersion = 1
-	version     = "1.0.0-beta"
-	releaseDate = "2025-10-31"
+	// Build metadata is injected with -ldflags from the release environment.
+	buildCodeVersion = "0"
+	version          = "development"
+	releaseDate      = "unknown"
 )
 
 //export FreeCString
@@ -1181,6 +1182,10 @@ func downloadFile(url, destPath string) error {
 
 //export GetVersionInfo
 func GetVersionInfo() *C.char {
+	codeVersion, err := strconv.Atoi(buildCodeVersion)
+	if err != nil {
+		codeVersion = 0
+	}
 	info := map[string]interface{}{
 		"codeVersion": codeVersion,
 		"version":     version,
