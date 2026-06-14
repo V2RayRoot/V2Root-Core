@@ -16,7 +16,7 @@ traffic statistics, logging, and geo-asset management.
 | --- | --- |
 | Latest Xray version built | `v26.3.27` |
 | V2Root release tag | [`v2root-v26.3.27`](https://github.com/V2RayRoot/V2Root-Core/releases/tag/v2root-v26.3.27) |
-| Build time (Tehran) | `2026-06-14 22:52 IRST` |
+| Build time (Tehran) | `2026-06-14 23:01 +0330` |
 | Build status | Tested and released automatically |
 <!-- release-metadata:end -->
 
