@@ -39,9 +39,15 @@ version is available, it:
 10. Publishes a tested GitHub Release.
 11. Updates this README with the version and Tehran build time.
 
-Releases use the `v2root-<xray-tag>` naming convention. Existing releases are
-never deleted or overwritten. A manual force rebuild creates a separate,
-immutable tag such as `v2root-<xray-tag>-build-<run-number>`.
+Every workflow run performs a build, even when the latest Xray version has not
+changed. The first build uses `v2root-<xray-tag>`; later builds of the same Xray
+version use immutable tags such as `v2root-<xray-tag>-build-<run-number>`.
+Existing tags and releases are never deleted or overwritten.
+
+Workflow progress is reported to Telegram by editing one status message. At the
+end of the run, the workflow also uploads a complete build and test report as a
+text file. Telegram credentials are stored only as encrypted GitHub Actions
+secrets.
 
 ## C API Reference
 

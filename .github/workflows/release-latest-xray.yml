@@ -4,12 +4,6 @@ on:
   schedule:
     - cron: "17 2 * * *"
   workflow_dispatch:
-    inputs:
-      force:
-        description: Rebuild the latest Xray release even if it already exists
-        required: false
-        type: boolean
-        default: false
 
 permissions:
   contents: write
@@ -27,12 +21,15 @@ jobs:
       release_tag: ${{ steps.release.outputs.release_tag }}
       build_code_version: ${{ steps.release.outputs.build_code_version }}
       build_time_tehran: ${{ steps.release.outputs.build_time_tehran }}
+      telegram_message_id: ${{ steps.telegram.outputs.message_id }}
     steps:
+      - name: Check out notification tooling
+        uses: actions/checkout@v4
+
       - name: Find latest stable Xray release
         id: release
         env:
           GH_TOKEN: ${{ github.token }}
-          FORCE_BUILD: ${{ inputs.force || false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -41,15 +38,10 @@ jobs:
             gh api repos/XTLS/Xray-core/releases/latest --jq '.tag_name'
           )"
           release_tag="v2root-${xray_tag}"
-          should_build=true
 
           if gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${release_tag}" \
                >/dev/null 2>&1; then
-            if [[ "$FORCE_BUILD" == "true" ]]; then
-              release_tag="${release_tag}-build-${GITHUB_RUN_NUMBER}"
-            else
-              should_build=false
-            fi
+            release_tag="${release_tag}-build-${GITHUB_RUN_NUMBER}"
           fi
           build_time_tehran="$(TZ=Asia/Tehran date '+%Y-%m-%d %H:%M:%S %z')"
           build_code_version="$GITHUB_RUN_NUMBER"
@@ -57,14 +49,37 @@ jobs:
           {
             echo "xray_tag=$xray_tag"
             echo "release_tag=$release_tag"
-            echo "should_build=$should_build"
+            echo "should_build=true"
             echo "build_code_version=$build_code_version"
             echo "build_time_tehran=$build_time_tehran"
           } >> "$GITHUB_OUTPUT"
 
           echo "Latest Xray: $xray_tag"
           echo "V2Root release: $release_tag"
-          echo "Build required: $should_build"
+          echo "Build required: true"
+
+      - name: Send Telegram start notification
+        id: telegram
+        env:
+          TG_TOKEN_BOT: ${{ secrets.TG_TOKEN_BOT }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          XRAY_TAG: ${{ steps.release.outputs.xray_tag }}
+          RELEASE_TAG: ${{ steps.release.outputs.release_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          text="V2Root build started
+          Repository: ${GITHUB_REPOSITORY}
+          Xray: ${XRAY_TAG}
+          Release: ${RELEASE_TAG}
+          Run: #${GITHUB_RUN_NUMBER}
+          Trigger: ${GITHUB_EVENT_NAME}
+          Status: discovering and preparing
+          ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          message_id="$(
+            python3 scripts/telegram_notify.py send --text "$text"
+          )"
+          echo "message_id=$message_id" >> "$GITHUB_OUTPUT"
 
   build:
     needs: discover
@@ -75,6 +90,20 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: v2root-core
+
+      - name: Update Telegram build status
+        env:
+          TG_TOKEN_BOT: ${{ secrets.TG_TOKEN_BOT }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        shell: bash
+        run: |
+          python3 v2root-core/scripts/telegram_notify.py edit \
+            --message-id "${{ needs.discover.outputs.telegram_message_id }}" \
+            --text "V2Root build in progress
+          Xray: ${{ needs.discover.outputs.xray_tag }}
+          Release: ${{ needs.discover.outputs.release_tag }}
+          Status: compiling Linux and Windows targets
+          Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
 
       - name: Check out Xray source
         uses: actions/checkout@v4
@@ -117,6 +146,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          exec > >(tee -a ../v2root-core-build.log) 2>&1
+          echo "V2Root complete build log"
+          echo "Run ID: ${GITHUB_RUN_ID}"
+          echo "Commit: ${GITHUB_SHA}"
+          echo "Xray: ${BUILD_VERSION}"
+          echo "Release date Tehran: ${BUILD_RELEASE_DATE}"
+          echo "Code version: ${BUILD_CODE_VERSION}"
+          go version
           mkdir -p dist
           build_ldflags="-s -w \
             -X 'main.version=${BUILD_VERSION}' \
@@ -151,17 +188,20 @@ jobs:
             xray-core/dist/xray-linux-amd64.so \
             --expected-version "${{ needs.discover.outputs.xray_tag }}" \
             --expected-release-date "${{ needs.discover.outputs.build_time_tehran }}" \
-            --expected-code-version "${{ needs.discover.outputs.build_code_version }}"
+            --expected-code-version "${{ needs.discover.outputs.build_code_version }}" \
+            2>&1 | tee -a v2root-core-build.log
 
       - name: Verify Windows export tables
         shell: bash
         run: |
           set -euo pipefail
           python3 v2root-core/tests/verify_windows_exports.py \
-            xray-core/dist/xray-windows-amd64.dll
+            xray-core/dist/xray-windows-amd64.dll \
+            2>&1 | tee -a v2root-core-build.log
           OBJDUMP=i686-w64-mingw32-objdump \
             python3 v2root-core/tests/verify_windows_exports.py \
-              xray-core/dist/xray-windows-386.dll
+              xray-core/dist/xray-windows-386.dll \
+              2>&1 | tee -a v2root-core-build.log
 
       - name: Package platform archives and checksums
         shell: bash
@@ -169,7 +209,8 @@ jobs:
           set -euo pipefail
           python3 v2root-core/scripts/package_release.py \
             --dist xray-core/dist \
-            --version "${{ needs.discover.outputs.xray_tag }}"
+            --version "${{ needs.discover.outputs.xray_tag }}" \
+            2>&1 | tee -a v2root-core-build.log
 
       - name: Validate release artifacts
         shell: bash
@@ -177,7 +218,16 @@ jobs:
           set -euo pipefail
           python3 v2root-core/tests/validate_release_artifacts.py \
             --dist xray-core/dist \
-            --version "${{ needs.discover.outputs.xray_tag }}"
+            --version "${{ needs.discover.outputs.xray_tag }}" \
+            2>&1 | tee -a v2root-core-build.log
+
+      - name: Upload complete build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ github.run_id }}
+          path: v2root-core-build.log
+          if-no-files-found: warn
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -243,3 +293,80 @@ jobs:
             --title "V2Root for Xray ${XRAY_TAG}" \
             --notes "$notes" \
             --latest
+
+  telegram:
+    needs: [discover, build, release]
+    if: always() && needs.discover.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out notification tooling
+        uses: actions/checkout@v4
+
+      - name: Download complete build log
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: build-log-${{ github.run_id }}
+          path: telegram-report
+
+      - name: Build final workflow report
+        env:
+          DISCOVER_RESULT: ${{ needs.discover.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          RELEASE_RESULT: ${{ needs.release.result }}
+          XRAY_TAG: ${{ needs.discover.outputs.xray_tag }}
+          RELEASE_TAG: ${{ needs.discover.outputs.release_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p telegram-report
+          report="telegram-report/V2Root-${GITHUB_RUN_ID}-complete.log"
+          {
+            echo "V2Root complete workflow report"
+            echo "Repository: ${GITHUB_REPOSITORY}"
+            echo "Run ID: ${GITHUB_RUN_ID}"
+            echo "Run number: ${GITHUB_RUN_NUMBER}"
+            echo "Commit: ${GITHUB_SHA}"
+            echo "Event: ${GITHUB_EVENT_NAME}"
+            echo "Actor: ${GITHUB_ACTOR}"
+            echo "Xray version: ${XRAY_TAG}"
+            echo "Release tag: ${RELEASE_TAG}"
+            echo "Discover: ${DISCOVER_RESULT}"
+            echo "Build and tests: ${BUILD_RESULT}"
+            echo "Release: ${RELEASE_RESULT}"
+            echo "Run URL: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo
+            echo "===== BUILD OUTPUT ====="
+            if [[ -f telegram-report/v2root-core-build.log ]]; then
+              cat telegram-report/v2root-core-build.log
+            else
+              echo "Build output artifact was not available."
+            fi
+          } > "$report"
+
+      - name: Edit Telegram status and send full report
+        env:
+          TG_TOKEN_BOT: ${{ secrets.TG_TOKEN_BOT }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          RELEASE_RESULT: ${{ needs.release.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$BUILD_RESULT" == "success" && "$RELEASE_RESULT" == "success" ]]; then
+            status="SUCCESS"
+          else
+            status="FAILED"
+          fi
+          text="V2Root workflow ${status}
+          Xray: ${{ needs.discover.outputs.xray_tag }}
+          Release: ${{ needs.discover.outputs.release_tag }}
+          Build/tests: ${BUILD_RESULT}
+          Release: ${RELEASE_RESULT}
+          Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          python3 scripts/telegram_notify.py edit \
+            --message-id "${{ needs.discover.outputs.telegram_message_id }}" \
+            --text "$text"
+          python3 scripts/telegram_notify.py document \
+            --path "telegram-report/V2Root-${GITHUB_RUN_ID}-complete.log" \
+            --caption "Complete V2Root workflow log: ${{ needs.discover.outputs.release_tag }}"
