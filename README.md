@@ -5,6 +5,10 @@ V2Root Core is the native shared-library integration of Xray-core built
 API for configuration parsing, Xray lifecycle management, latency checks,
 traffic statistics, logging, and geo-asset management.
 
+For ABI rules, memory ownership, complete API behavior, configuration schemas,
+and integration examples for C/C++, Python, C#, and Dart/Flutter, see the
+**[Developer Integration Guide](docs/DEVELOPER_GUIDE.md)**.
+
 > This project is specifically designed, maintained, tested, and released for
 > V2Root-App and V2Root. It is not intended to be a general-purpose replacement
 > for the official Xray-core distribution.
