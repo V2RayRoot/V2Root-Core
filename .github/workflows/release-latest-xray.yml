@@ -1,0 +1,172 @@
+name: Build latest Xray with V2Root
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Rebuild the latest Xray release even if it already exists
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-latest-xray
+  cancel-in-progress: false
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.release.outputs.should_build }}
+      xray_tag: ${{ steps.release.outputs.xray_tag }}
+      release_tag: ${{ steps.release.outputs.release_tag }}
+    steps:
+      - name: Find latest stable Xray release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE_BUILD: ${{ inputs.force || false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          xray_tag="$(
+            gh api repos/XTLS/Xray-core/releases/latest --jq '.tag_name'
+          )"
+          release_tag="v2root-${xray_tag}"
+          should_build=true
+
+          if [[ "$FORCE_BUILD" != "true" ]] &&
+             gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${release_tag}" \
+               >/dev/null 2>&1; then
+            should_build=false
+          fi
+
+          {
+            echo "xray_tag=$xray_tag"
+            echo "release_tag=$release_tag"
+            echo "should_build=$should_build"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Latest Xray: $xray_tag"
+          echo "V2Root release: $release_tag"
+          echo "Build required: $should_build"
+
+  build:
+    needs: discover
+    if: needs.discover.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out V2Root sources
+        uses: actions/checkout@v4
+        with:
+          path: v2root-core
+
+      - name: Check out Xray source
+        uses: actions/checkout@v4
+        with:
+          repository: XTLS/Xray-core
+          ref: ${{ needs.discover.outputs.xray_tag }}
+          path: xray-core
+          fetch-depth: 1
+
+      - name: Set up Go from Xray go.mod
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: xray-core/go.mod
+          cache-dependency-path: xray-core/go.sum
+
+      - name: Install Windows cross compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends mingw-w64
+
+      - name: Add V2Root package to Xray
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf xray-core/v2root
+          cp -R v2root-core/v2root xray-core/v2root
+
+      - name: Build Linux and Windows shared libraries
+        working-directory: xray-core
+        env:
+          CGO_ENABLED: "1"
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+
+          GOOS=linux GOARCH=amd64 \
+            go build -trimpath -buildmode=c-shared \
+            -ldflags="-s -w" -o dist/xray-linux-amd64.so ./v2root
+
+          GOOS=windows GOARCH=amd64 CC=x86_64-w64-mingw32-gcc \
+            go build -trimpath -buildmode=c-shared \
+            -ldflags="-s -w" -o dist/xray-windows-amd64.dll ./v2root
+
+          sha256sum \
+            dist/xray-linux-amd64.so \
+            dist/xray-windows-amd64.dll \
+            > dist/SHA256SUMS
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2root-${{ needs.discover.outputs.xray_tag }}
+          path: |
+            xray-core/dist/xray-linux-amd64.so
+            xray-core/dist/xray-linux-amd64.h
+            xray-core/dist/xray-windows-amd64.dll
+            xray-core/dist/xray-windows-amd64.h
+            xray-core/dist/SHA256SUMS
+          if-no-files-found: error
+
+  release:
+    needs: [discover, build]
+    if: needs.discover.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: v2root-${{ needs.discover.outputs.xray_tag }}
+          path: dist
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.discover.outputs.release_tag }}
+          XRAY_TAG: ${{ needs.discover.outputs.xray_tag }}
+          FORCE_BUILD: ${{ inputs.force || false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "$FORCE_BUILD" == "true" ]] &&
+             gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+               >/dev/null 2>&1; then
+            gh release delete "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --cleanup-tag \
+              --yes
+          fi
+
+          notes="$(
+            cat <<EOF
+          Automated V2Root shared-library build based on XTLS/Xray-core ${XRAY_TAG}.
+
+          Upstream source: https://github.com/XTLS/Xray-core/releases/tag/${XRAY_TAG}
+          EOF
+          )"
+
+          gh release create "$RELEASE_TAG" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "V2Root for Xray ${XRAY_TAG}" \
+            --notes "$notes" \
+            --latest
