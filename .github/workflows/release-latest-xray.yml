@@ -81,10 +81,13 @@ jobs:
           go-version-file: xray-core/go.mod
           cache-dependency-path: xray-core/go.sum
 
-      - name: Install Windows cross compiler
+      - name: Install cross compilers and packaging tools
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends mingw-w64
+          sudo apt-get install --yes --no-install-recommends \
+            gcc-aarch64-linux-gnu \
+            gcc-i686-linux-gnu \
+            mingw-w64
 
       - name: Add V2Root package to Xray
         shell: bash
@@ -93,7 +96,7 @@ jobs:
           rm -rf xray-core/v2root
           cp -R v2root-core/v2root xray-core/v2root
 
-      - name: Build Linux and Windows shared libraries
+      - name: Build all supported shared libraries
         working-directory: xray-core
         env:
           CGO_ENABLED: "1"
@@ -106,34 +109,60 @@ jobs:
             go build -trimpath -buildmode=c-shared \
             -ldflags="-s -w" -o dist/xray-linux-amd64.so ./v2root
 
+          GOOS=linux GOARCH=arm64 CC=aarch64-linux-gnu-gcc \
+            go build -trimpath -buildmode=c-shared \
+            -ldflags="-s -w" -o dist/xray-linux-arm64.so ./v2root
+
+          GOOS=linux GOARCH=386 CC=i686-linux-gnu-gcc \
+            go build -trimpath -buildmode=c-shared \
+            -ldflags="-s -w" -o dist/xray-linux-386.so ./v2root
+
           GOOS=windows GOARCH=amd64 CC=x86_64-w64-mingw32-gcc \
             go build -trimpath -buildmode=c-shared \
             -ldflags="-s -w" -o dist/xray-windows-amd64.dll ./v2root
 
-          sha256sum \
-            dist/xray-linux-amd64.so \
-            dist/xray-windows-amd64.dll \
-            > dist/SHA256SUMS
+          GOOS=windows GOARCH=386 CC=i686-w64-mingw32-gcc \
+            go build -trimpath -buildmode=c-shared \
+            -ldflags="-s -w" -o dist/xray-windows-386.dll ./v2root
 
-      - name: Test every exported API function
+      - name: Exercise every exported API function
         shell: bash
         run: |
           set -euo pipefail
           python3 v2root-core/tests/smoke_shared_library.py \
             xray-core/dist/xray-linux-amd64.so
+
+      - name: Verify Windows export tables
+        shell: bash
+        run: |
+          set -euo pipefail
           python3 v2root-core/tests/verify_windows_exports.py \
             xray-core/dist/xray-windows-amd64.dll
+          OBJDUMP=i686-w64-mingw32-objdump \
+            python3 v2root-core/tests/verify_windows_exports.py \
+              xray-core/dist/xray-windows-386.dll
+
+      - name: Package platform archives and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 v2root-core/scripts/package_release.py \
+            --dist xray-core/dist \
+            --version "${{ needs.discover.outputs.xray_tag }}"
+
+      - name: Validate release artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 v2root-core/tests/validate_release_artifacts.py \
+            --dist xray-core/dist \
+            --version "${{ needs.discover.outputs.xray_tag }}"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: v2root-${{ needs.discover.outputs.xray_tag }}
-          path: |
-            xray-core/dist/xray-linux-amd64.so
-            xray-core/dist/xray-linux-amd64.h
-            xray-core/dist/xray-windows-amd64.dll
-            xray-core/dist/xray-windows-amd64.h
-            xray-core/dist/SHA256SUMS
+          path: xray-core/dist/*
           if-no-files-found: error
 
   release:

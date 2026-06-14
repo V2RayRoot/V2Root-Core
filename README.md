@@ -29,12 +29,15 @@ version is available, it:
 
 1. Checks out the exact upstream Xray release tag.
 2. Adds the V2Root native integration.
-3. Builds Linux amd64 and Windows amd64 shared libraries.
-4. Exercises every exported API function against the compiled Linux library.
-5. Verifies every public symbol in the Windows DLL.
-6. Generates SHA-256 checksums.
-7. Publishes a tested GitHub Release.
-8. Updates this README with the version and Tehran build time.
+3. Builds Linux `amd64`, `arm64`, and `386` shared libraries.
+4. Builds Windows `amd64` and `386` shared libraries.
+5. Exercises every exported API function against the compiled Linux library.
+6. Verifies every public symbol in both Windows DLLs.
+7. Packages each platform and architecture as a separate ZIP archive.
+8. Generates individual and aggregate SHA-256 checksums.
+9. Validates every release file and ZIP before publication.
+10. Publishes a tested GitHub Release.
+11. Updates this README with the version and Tehran build time.
 
 Releases use the `v2root-<xray-tag>` naming convention. Existing versions are
 skipped unless a maintainer explicitly requests a force rebuild.
@@ -74,12 +77,29 @@ Each automated release contains:
 | --- | --- |
 | `xray-linux-amd64.so` | Linux amd64 shared library |
 | `xray-linux-amd64.h` | Linux C header |
+| `xray-linux-arm64.so` | Linux arm64 shared library |
+| `xray-linux-arm64.h` | Linux C header |
+| `xray-linux-386.so` | Linux 32-bit x86 shared library |
+| `xray-linux-386.h` | Linux C header |
 | `xray-windows-amd64.dll` | Windows amd64 shared library |
 | `xray-windows-amd64.h` | Windows C header |
-| `SHA256SUMS` | Integrity checksums |
+| `xray-windows-386.dll` | Windows 32-bit x86 shared library |
+| `xray-windows-386.h` | Windows C header |
+| `V2Root-Core-<os>-<arch>-<version>.zip` | Platform package containing its binary, header, and internal `SHA256SUMS` |
+| `<artifact>.sha256` | Individual checksum for each binary, header, and ZIP |
+| `SHA256SUMS` | Aggregate checksum manifest for every binary, header, and ZIP |
 
 ## Quality Gates
 
-The release is blocked if compilation, API smoke tests, Windows export
-verification, or artifact validation fails. Test implementation and local usage
-instructions are available in [`tests/`](tests/).
+A release is published only when every quality gate below passes:
+
+| Gate | What it verifies | Failure result |
+| --- | --- | --- |
+| Compilation | Every supported Linux and Windows target compiles from the exact upstream Xray tag with CGO enabled. | No Release is created if any architecture fails to build. |
+| API smoke tests | The compiled Linux amd64 library is loaded dynamically and every exported C function is called, including lifecycle, parser, validation, latency, statistics, logging, asset-update error handling, and memory release. | A crash, invalid response, missing behavior, or failed assertion blocks the Release. |
+| Windows export verification | The export tables of both Windows DLLs contain the complete public C API. | A DLL with any missing exported function is rejected. |
+| Artifact validation | Every expected binary and header exists and is non-empty; every ZIP contains the correct binary, header, and internal checksum manifest; every individual and aggregate SHA-256 checksum is recalculated and compared. | Missing, empty, incorrectly packaged, or corrupted files block the Release. |
+
+In practical terms, “the release is blocked” means GitHub Actions stops before
+the publication job. No partial or untested GitHub Release is uploaded. Test
+implementation and usage instructions are available in [`tests/`](tests/).

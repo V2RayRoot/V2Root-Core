@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -17,7 +18,7 @@ def main() -> None:
     args = parser.parse_args()
 
     output = subprocess.check_output(
-        ["x86_64-w64-mingw32-objdump", "-p", str(args.dll)],
+        [os.environ.get("OBJDUMP", "x86_64-w64-mingw32-objdump"), "-p", str(args.dll)],
         text=True,
     )
     exports = set(re.findall(r"\]\s+([A-Za-z][A-Za-z0-9_]*)$", output, re.MULTILINE))
