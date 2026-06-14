@@ -91,68 +91,9 @@ func isValidJSON(s string) bool {
 	return json.Unmarshal([]byte(s), &js) == nil
 }
 
-// normalizeAndValidateConfig normalizes configMap to canonical Xray TUN structure and validates required fields.
+// normalizeAndValidateConfig normalizes common Xray fields and validates required fields.
 // Returns an error string if validation fails, else nil.
 func normalizeAndValidateConfig(configMap map[string]interface{}) string {
-	// Normalize inbounds
-	if inboundsRaw, ok := configMap["inbounds"].([]interface{}); ok {
-		for _, inboundRaw := range inboundsRaw {
-			if inbound, ok := inboundRaw.(map[string]interface{}); ok {
-				if typ, _ := inbound["type"].(string); typ == "tun" {
-					// Set defaults
-					if tag, _ := inbound["tag"].(string); tag == "" {
-						inbound["tag"] = "tun-in"
-					}
-					if iface, _ := inbound["interface_name"].(string); iface == "" {
-						inbound["interface_name"] = "V2ROOT"
-					}
-					if stack, _ := inbound["stack"].(string); stack != "gvisor" {
-						inbound["stack"] = "system"
-					}
-					if mtuRaw, ok := inbound["mtu"]; ok {
-						if mtu, ok := mtuRaw.(float64); ok {
-							if mtu < 1280 || mtu > 9000 {
-								inbound["mtu"] = 1500.0
-							}
-						} else {
-							inbound["mtu"] = 1500.0
-						}
-					} else {
-						inbound["mtu"] = 1500.0
-					}
-					// Transform sniff to sniffing
-					if sniffRaw, exists := inbound["sniff"]; exists {
-						delete(inbound, "sniff")
-						if sniff, ok := sniffRaw.(bool); ok {
-							if sniff {
-								inbound["sniffing"] = map[string]interface{}{
-									"enabled":      true,
-									"destOverride": []string{"http", "tls"},
-								}
-							} else {
-								inbound["sniffing"] = map[string]interface{}{
-									"enabled": false,
-								}
-							}
-						}
-					}
-					// Ensure sniffing object is valid if present
-					if sniffingRaw, exists := inbound["sniffing"]; exists {
-						if sniffing, ok := sniffingRaw.(map[string]interface{}); ok {
-							if enabled, ok := sniffing["enabled"].(bool); !ok {
-								sniffing["enabled"] = false
-							} else if enabled {
-								if _, ok := sniffing["destOverride"].([]interface{}); !ok {
-									sniffing["destOverride"] = []string{"http", "tls"}
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-
 	// Normalize outbounds
 	if outboundsRaw, ok := configMap["outbounds"].([]interface{}); ok {
 		for _, outboundRaw := range outboundsRaw {
@@ -250,7 +191,6 @@ func Start(configInput_C *C.char, optionsJSON_C *C.char) *C.char {
 	defer serverLock.Unlock()
 
 	if server != nil {
-		// Status might be "RUNNING" or "RUNNING (VPN)", both are valid running states
 		if strings.HasPrefix(serverStatus, "RUNNING") {
 			return C.CString("server already running")
 		}
@@ -271,7 +211,6 @@ func Start(configInput_C *C.char, optionsJSON_C *C.char) *C.char {
 	var opts struct {
 		GeositeFile string `json:"geositeFile"`
 		GeositePath string `json:"geositePath"`
-		VPNMode     bool   `json:"vpn_mode"`
 	}
 	if optionsJSON != "" {
 		if err := json.Unmarshal([]byte(optionsJSON), &opts); err != nil {
@@ -316,8 +255,7 @@ func Start(configInput_C *C.char, optionsJSON_C *C.char) *C.char {
 		config = trimmed
 	} else if strings.HasPrefix(trimmed, "vless://") || strings.HasPrefix(trimmed, "vmess://") ||
 		strings.HasPrefix(trimmed, "trojan://") || strings.HasPrefix(trimmed, "ss://") {
-		// This is a URI, needs parsing. We must pass the optionsJSON to the parser.
-		// The parser will use `vpn_mode` to decide whether to add proxy inbounds.
+		// This is a URI, so pass the options to the parser.
 		parserOpts := make(map[string]interface{})
 		if optionsJSON != "" {
 			if err := json.Unmarshal([]byte(optionsJSON), &parserOpts); err != nil {
@@ -326,9 +264,6 @@ func Start(configInput_C *C.char, optionsJSON_C *C.char) *C.char {
 			}
 		}
 		parserOpts["uri"] = trimmed
-		// Note: We no longer add default httpPort/socksPort here.
-		// The parser will add them *only if* vpn_mode is false.
-
 		optsBytes, _ := json.Marshal(parserOpts)
 		parsed_C := Parse(C.CString(string(optsBytes)))
 
@@ -502,7 +437,6 @@ func Start(configInput_C *C.char, optionsJSON_C *C.char) *C.char {
 	go func() {
 		// srv.Start() blocks until server stops
 		if err := srv.Start(); err != nil {
-			// If start fails (e.g., TUN permission error after all checks)
 			fmt.Fprintf(os.Stderr, "Xray Core Wrapper: server start failed: %v\n", err)
 			serverLock.Lock()
 			server = nil
@@ -619,7 +553,7 @@ func testSingleConfig(configJSON, testURL string, timeoutSec int) string {
 	if strings.HasPrefix(trimmedConfig, "vless://") || strings.HasPrefix(trimmedConfig, "vmess://") ||
 		strings.HasPrefix(trimmedConfig, "trojan://") || strings.HasPrefix(trimmedConfig, "ss://") {
 		// TestLatency should *not* enable VPN mode.
-		opts := map[string]interface{}{"uri": trimmedConfig, "vpn_mode": false}
+		opts := map[string]interface{}{"uri": trimmedConfig}
 		optsBytes, _ := json.Marshal(opts)
 		parsed_C := Parse(C.CString(string(optsBytes)))
 		if parsed_C == nil {
@@ -658,15 +592,6 @@ func testSingleConfig(configJSON, testURL string, timeoutSec int) string {
 
 	inbounds, ok := configMap["inbounds"].([]interface{})
 	if !ok || len(inbounds) == 0 {
-		// Config might have been generated with vpn_mode=true, which has no proxy inbounds.
-		// Latency test is impossible in this case.
-		isVPNConfig := false
-		if strings.Contains(fullConfig, `"type": "tun"`) {
-			isVPNConfig = true
-		}
-		if len(inbounds) == 0 && isVPNConfig {
-			return "[ERROR]cannot test latency on VPN-only config"
-		}
 		if len(inbounds) == 0 {
 			return "[ERROR]no inbounds found in config"
 		}
@@ -690,9 +615,6 @@ func testSingleConfig(configJSON, testURL string, timeoutSec int) string {
 	}
 	targetInbound["port"] = float64(port)
 	targetInbound["listen"] = "127.0.0.1"
-	// Ensure inbound is re-added if it was missing (e.g. from a vpn_mode parse)
-	// This is tricky. Let's just modify the existing one.
-
 	modifiedConfig, err := json.Marshal(configMap)
 	if err != nil {
 		return "[ERROR]failed to marshal config"
@@ -807,7 +729,6 @@ func ValidateConfig(configInput_C *C.char, optionsJSON_C *C.char) *C.char {
 	var opts struct {
 		GeositeFile string `json:"geositeFile"`
 		GeositePath string `json:"geositePath"`
-		VPNMode     bool   `json:"vpn_mode"`
 	}
 	if optionsJSON != "" {
 		_ = json.Unmarshal([]byte(optionsJSON), &opts)
@@ -847,7 +768,6 @@ func ValidateConfig(configInput_C *C.char, optionsJSON_C *C.char) *C.char {
 		config = trimmed
 	} else if strings.HasPrefix(trimmed, "vless://") || strings.HasPrefix(trimmed, "vmess://") ||
 		strings.HasPrefix(trimmed, "trojan://") || strings.HasPrefix(trimmed, "ss://") {
-		// Pass optionsJSON to parser, which will respect `vpn_mode`
 		parserOpts := make(map[string]interface{})
 		if optionsJSON != "" {
 			_ = json.Unmarshal([]byte(optionsJSON), &parserOpts)
@@ -891,71 +811,6 @@ func ValidateConfig(configInput_C *C.char, optionsJSON_C *C.char) *C.char {
 		}
 	}
 
-	// --- BEGIN VPN Mode (TUN) Injection for VALIDATION ---
-	// Check opts from optionsJSON *and* if `vpn_mode: true` was in the config string itself
-	if v, ok := configMap["vpn_mode"].(bool); ok && v {
-		opts.VPNMode = true
-	}
-
-	if opts.VPNMode {
-		if runtime.GOOS == "darwin" {
-			return C.CString(`{"error":"VPN Mode (TUN) is not supported on macOS."}`)
-		}
-		// No root check needed for validation, just config structure
-
-		// 1. Remove proxy inbounds
-		inbounds, _ := configMap["inbounds"].([]interface{})
-		newInbounds := make([]interface{}, 0, len(inbounds))
-		for _, rawInbound := range inbounds {
-			in, ok := rawInbound.(map[string]interface{})
-			if !ok {
-				newInbounds = append(newInbounds, rawInbound)
-				continue
-			}
-			proto, _ := in["protocol"].(string)
-			if proto == "http" || proto == "socks" {
-				continue // Skip
-			}
-			newInbounds = append(newInbounds, rawInbound)
-		}
-
-		// 2. Add TUN inbound
-		tunInbound := map[string]interface{}{
-			"type":           "tun",
-			"tag":            "tun-in",
-			"interface_name": "V2ROOT",
-			"stack":          "system",
-			"sniff":          true,
-			"mtu":            1500,
-		}
-		newInbounds = append(newInbounds, tunInbound)
-		configMap["inbounds"] = newInbounds
-
-		// 3. Add TUN routing rule
-		routing, ok := configMap["routing"].(map[string]interface{})
-		if !ok {
-			routing = make(map[string]interface{})
-			configMap["routing"] = routing
-		}
-		rules, ok := routing["rules"].([]interface{})
-		if !ok {
-			rules = make([]interface{}, 0)
-		}
-
-		tunRule := map[string]interface{}{
-			"type":        "field",
-			"inboundTag":  []string{"tun-in"},
-			"outboundTag": "Proxy",
-		}
-
-		// Prepend TUN rule
-		allRules := []interface{}{tunRule}
-		allRules = append(allRules, rules...)
-		routing["rules"] = allRules
-		routing["domainStrategy"] = "IPIfNonMatch"
-	}
-	// --- END VPN Mode (TUN) Injection for VALIDATION ---
-
 	// --- Normalize and Validate Config ---
 	if errMsg := normalizeAndValidateConfig(configMap); errMsg != "" {
 		return C.CString(fmt.Sprintf(`{"error":"config validation failed: %s"}`, errMsg))
@@ -995,10 +850,6 @@ func ValidateConfig(configInput_C *C.char, optionsJSON_C *C.char) *C.char {
 		return C.CString(fmt.Sprintf(`{"error":"failed to load config: %s"}`, err.Error()))
 	}
 
-	// If VPN mode was validated, include that in the success message
-	if opts.VPNMode {
-		return C.CString(`{"result":"valid", "vpn_mode":true}`)
-	}
 	return C.CString(`{"result":"valid"}`)
 }
 
@@ -1025,9 +876,7 @@ func queryStatsFromAPI() (int64, int64, error) {
 
 	var totalUplink, totalDownlink int64
 	for _, stat := range resp.Stat {
-		// In VPN mode, traffic comes from "tun-in"
-		// In Proxy mode, traffic comes from "http-in", "socks-in"
-		// Easiest to just query outbound stats, which are consistent.
+		// Outbound stats are consistent across supported proxy configurations.
 		if strings.HasPrefix(stat.Name, "outbound") && !strings.Contains(stat.Name, "api") {
 			if strings.HasSuffix(stat.Name, "uplink") {
 				totalUplink += stat.Value

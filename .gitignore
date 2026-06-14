@@ -68,3 +68,6 @@ ehthumbs.db
 *.tmp
 
 backup/
+
+# Kept locally and published through the GitHub Wiki, not the main repository.
+docs/DEVELOPER_GUIDE.md

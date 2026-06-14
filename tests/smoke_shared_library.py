@@ -171,6 +171,27 @@ def main() -> None:
     for function_name, options in parser_cases.items():
         assert api.text(function_name, encoded(options)) == ""
 
+    proxy_config = require_json(
+        api.text(
+            "ParseVless",
+            encoded(
+                {
+                    "uri": (
+                        "vless://11111111-1111-1111-1111-111111111111"
+                        "@example.com:443?encryption=none"
+                    ),
+                    "vpn_mode": True,
+                }
+            ),
+        ),
+        "ParseVless",
+    )
+    protocols = {
+        inbound.get("protocol") for inbound in proxy_config.get("inbounds", [])
+    }
+    assert {"http", "socks"} <= protocols, proxy_config
+    assert "tun" not in protocols, proxy_config
+
     uri = api.text(
         "JSONToConfigString",
         encoded(

@@ -57,11 +57,7 @@ type InboundConfig struct {
 	Settings map[string]interface{} `json:"settings,omitempty"`
 	Tag      string                 `json:"tag,omitempty"`
 	Type     string                 `json:"type,omitempty"`
-	// TUN-specific fields
-	InterfaceName string            `json:"interface_name,omitempty"`
-	Stack         string            `json:"stack,omitempty"`
-	Sniffing      *SniffingSettings `json:"sniffing,omitempty"` // Canonical sniffing object
-	MTU           int               `json:"mtu,omitempty"`
+	Sniffing *SniffingSettings      `json:"sniffing,omitempty"`
 }
 
 type SniffingSettings struct {
@@ -187,8 +183,8 @@ type RoutingRule struct {
 	Type        string   `json:"type"`
 	Domain      []string `json:"domain,omitempty"`
 	Ip          []string `json:"ip,omitempty"`
-	Port        string   `json:"port,omitempty"`       // Added port support for catch-all
-	InboundTag  []string `json:"inboundTag,omitempty"` // For TUN rule
+	Port        string   `json:"port,omitempty"` // Added port support for catch-all
+	InboundTag  []string `json:"inboundTag,omitempty"`
 	OutboundTag string   `json:"outboundTag"`
 }
 
@@ -200,7 +196,6 @@ type ParseOptions struct {
 	GeositeDNS    string        `json:"geositeDNS,omitempty"`
 	HTTPPort      int           `json:"httpPort,omitempty"`
 	SOCKSPort     int           `json:"socksPort,omitempty"`
-	VPNMode       bool          `json:"vpn_mode,omitempty"`
 	RoutingMode   string        `json:"routingMode,omitempty"`
 	URI           string        `json:"uri"`
 	GeositeRules  []GeositeRule `json:"geositeRules,omitempty"`
@@ -349,27 +344,10 @@ func addGeositeRuleIfExists(dnsConfig *DNSConfig, geositePath string, rule *Geos
 	}
 }
 
-func createDefaultInbounds(httpPort, socksPort uint16, vpnMode bool) []InboundConfig {
+func createDefaultInbounds(httpPort, socksPort uint16) []InboundConfig {
 	sniffing := &SniffingSettings{
 		Enabled:      true,
 		DestOverride: []string{"http", "tls", "quic"},
-	}
-
-	if vpnMode {
-		return []InboundConfig{
-			{
-				Tag:      "tun-in",
-				Port:     10853,
-				Protocol: "tun",
-				Settings: map[string]interface{}{
-					"name":       "V2ROOT",
-					"mtu":        1500,
-					"address":    []string{"172.19.0.1/30"},
-					"auto_route": true,
-				},
-				Sniffing: sniffing,
-			},
-		}
 	}
 
 	return []InboundConfig{
@@ -388,12 +366,7 @@ func createDefaultInbounds(httpPort, socksPort uint16, vpnMode bool) []InboundCo
 	}
 }
 
-func buildRoutingConfig(geositeRules []GeositeRule, geoipRules []GeoipRule, defaultAction string, vpnMode bool) *RoutingConfig {
-	domainStrategy := "AsIs"
-	if vpnMode {
-		domainStrategy = "IPIfNonMatch"
-	}
-
+func buildRoutingConfig(geositeRules []GeositeRule, geoipRules []GeoipRule, defaultAction string) *RoutingConfig {
 	rules := []RoutingRule{}
 
 	for _, gr := range geositeRules {
@@ -426,7 +399,7 @@ func buildRoutingConfig(geositeRules []GeositeRule, geoipRules []GeoipRule, defa
 	}
 
 	return &RoutingConfig{
-		DomainStrategy: domainStrategy,
+		DomainStrategy: "AsIs",
 		Rules:          rules,
 	}
 }
@@ -480,13 +453,13 @@ func Parse(optionsJSON *C.char) *C.char {
 	var config *OutputConfig
 	var err error
 	if strings.HasPrefix(opts.URI, "vless://") {
-		config, err = parseVless(opts.URI, httpPort, socksPort, opts.GeositePath, opts.DNSConfig, geositeDNSRule, opts.GeositeRules, opts.GeoipRules, routingMode, opts.VPNMode)
+		config, err = parseVless(opts.URI, httpPort, socksPort, opts.GeositePath, opts.DNSConfig, geositeDNSRule, opts.GeositeRules, opts.GeoipRules, routingMode)
 	} else if strings.HasPrefix(opts.URI, "vmess://") {
-		config, err = parseVmess(opts.URI, httpPort, socksPort, opts.GeositePath, opts.DNSConfig, geositeDNSRule, opts.GeositeRules, opts.GeoipRules, routingMode, opts.VPNMode)
+		config, err = parseVmess(opts.URI, httpPort, socksPort, opts.GeositePath, opts.DNSConfig, geositeDNSRule, opts.GeositeRules, opts.GeoipRules, routingMode)
 	} else if strings.HasPrefix(opts.URI, "trojan://") {
-		config, err = parseTrojan(opts.URI, httpPort, socksPort, opts.GeositePath, opts.DNSConfig, geositeDNSRule, opts.GeositeRules, opts.GeoipRules, routingMode, opts.VPNMode)
+		config, err = parseTrojan(opts.URI, httpPort, socksPort, opts.GeositePath, opts.DNSConfig, geositeDNSRule, opts.GeositeRules, opts.GeoipRules, routingMode)
 	} else if strings.HasPrefix(opts.URI, "ss://") {
-		config, err = parseShadowsocks(opts.URI, httpPort, socksPort, opts.GeositePath, opts.DNSConfig, geositeDNSRule, opts.GeositeRules, opts.GeoipRules, routingMode, opts.VPNMode)
+		config, err = parseShadowsocks(opts.URI, httpPort, socksPort, opts.GeositePath, opts.DNSConfig, geositeDNSRule, opts.GeositeRules, opts.GeoipRules, routingMode)
 	} else {
 		return C.CString("")
 	}
@@ -552,7 +525,7 @@ func ParseVless(optionsJSON *C.char) *C.char {
 	if opts.SOCKSPort > 0 {
 		socksPort = uint16(opts.SOCKSPort)
 	}
-	config, err := parseVless(opts.URI, httpPort, socksPort, opts.GeositePath, opts.DNSConfig, geositeDNSRule, opts.GeositeRules, opts.GeoipRules, opts.RoutingMode, opts.VPNMode)
+	config, err := parseVless(opts.URI, httpPort, socksPort, opts.GeositePath, opts.DNSConfig, geositeDNSRule, opts.GeositeRules, opts.GeoipRules, opts.RoutingMode)
 	if err != nil {
 		return C.CString("")
 	}
@@ -599,7 +572,7 @@ func ParseTrojan(optionsJSON *C.char) *C.char {
 	if opts.SOCKSPort > 0 {
 		socksPort = uint16(opts.SOCKSPort)
 	}
-	config, err := parseTrojan(opts.URI, httpPort, socksPort, opts.GeositePath, opts.DNSConfig, geositeDNSRule, opts.GeositeRules, opts.GeoipRules, opts.RoutingMode, opts.VPNMode)
+	config, err := parseTrojan(opts.URI, httpPort, socksPort, opts.GeositePath, opts.DNSConfig, geositeDNSRule, opts.GeositeRules, opts.GeoipRules, opts.RoutingMode)
 	if err != nil {
 		return C.CString("")
 	}
@@ -646,7 +619,7 @@ func ParseVmess(optionsJSON *C.char) *C.char {
 	if opts.SOCKSPort > 0 {
 		socksPort = uint16(opts.SOCKSPort)
 	}
-	config, err := parseVmess(opts.URI, httpPort, socksPort, opts.GeositePath, opts.DNSConfig, geositeDNSRule, opts.GeositeRules, opts.GeoipRules, opts.RoutingMode, opts.VPNMode)
+	config, err := parseVmess(opts.URI, httpPort, socksPort, opts.GeositePath, opts.DNSConfig, geositeDNSRule, opts.GeositeRules, opts.GeoipRules, opts.RoutingMode)
 	if err != nil {
 		return C.CString("")
 	}
@@ -693,7 +666,7 @@ func ParseShadowsocks(optionsJSON *C.char) *C.char {
 	if opts.SOCKSPort > 0 {
 		socksPort = uint16(opts.SOCKSPort)
 	}
-	config, err := parseShadowsocks(opts.URI, httpPort, socksPort, opts.GeositePath, opts.DNSConfig, geositeDNSRule, opts.GeositeRules, opts.GeoipRules, opts.RoutingMode, opts.VPNMode)
+	config, err := parseShadowsocks(opts.URI, httpPort, socksPort, opts.GeositePath, opts.DNSConfig, geositeDNSRule, opts.GeositeRules, opts.GeoipRules, opts.RoutingMode)
 	if err != nil {
 		return C.CString("")
 	}
@@ -1216,7 +1189,7 @@ func getPluginInfo(ob OutboundConfig) (string, bool) {
 	}
 }
 
-func parseVless(rawURL string, httpPort, socksPort uint16, geositePath string, customDNS *DNSConfig, geositeDNSRule *GeositeDNSRule, geositeRules []GeositeRule, geoipRules []GeoipRule, routingMode string, vpnMode bool) (*OutputConfig, error) {
+func parseVless(rawURL string, httpPort, socksPort uint16, geositePath string, customDNS *DNSConfig, geositeDNSRule *GeositeDNSRule, geositeRules []GeositeRule, geoipRules []GeoipRule, routingMode string) (*OutputConfig, error) {
 	parsedURL, err := url.Parse(rawURL)
 	if err != nil {
 		return nil, fmt.Errorf("vless: invalid url format: %w", err)
@@ -1240,7 +1213,7 @@ func parseVless(rawURL string, httpPort, socksPort uint16, geositePath string, c
 	remark, _ := url.PathUnescape(parsedURL.Fragment)
 
 	config := &OutputConfig{}
-	config.Inbounds = createDefaultInbounds(httpPort, socksPort, vpnMode)
+	config.Inbounds = createDefaultInbounds(httpPort, socksPort)
 
 	if parsedURL.User != nil && parsedURL.User.Username() != "" {
 		mainOutbound := OutboundConfig{
@@ -1271,7 +1244,7 @@ func parseVless(rawURL string, httpPort, socksPort uint16, geositePath string, c
 	}
 
 	config.DNS = defaultDNSConfigWithCustom(geositePath, customDNS, geositeDNSRule)
-	config.Routing = buildRoutingConfig(geositeRules, geoipRules, routingMode, vpnMode)
+	config.Routing = buildRoutingConfig(geositeRules, geoipRules, routingMode)
 
 	security := query.Get("security")
 	if security == "" {
@@ -1392,7 +1365,7 @@ func parseVless(rawURL string, httpPort, socksPort uint16, geositePath string, c
 	return config, nil
 }
 
-func parseTrojan(rawURL string, httpPort, socksPort uint16, geositePath string, customDNS *DNSConfig, geositeDNSRule *GeositeDNSRule, geositeRules []GeositeRule, geoipRules []GeoipRule, routingMode string, vpnMode bool) (*OutputConfig, error) {
+func parseTrojan(rawURL string, httpPort, socksPort uint16, geositePath string, customDNS *DNSConfig, geositeDNSRule *GeositeDNSRule, geositeRules []GeositeRule, geoipRules []GeoipRule, routingMode string) (*OutputConfig, error) {
 	parsedURL, err := url.Parse(rawURL)
 	if err != nil {
 		return nil, fmt.Errorf("trojan: invalid url format: %w", err)
@@ -1406,7 +1379,7 @@ func parseTrojan(rawURL string, httpPort, socksPort uint16, geositePath string, 
 	remark, _ := url.PathUnescape(parsedURL.Fragment)
 	query := parsedURL.Query()
 	config := &OutputConfig{}
-	config.Inbounds = createDefaultInbounds(httpPort, socksPort, vpnMode)
+	config.Inbounds = createDefaultInbounds(httpPort, socksPort)
 	mainOutbound := OutboundConfig{
 		Tag:      "Proxy",
 		Protocol: "trojan",
@@ -1430,7 +1403,7 @@ func parseTrojan(rawURL string, httpPort, socksPort uint16, geositePath string, 
 	}
 
 	config.DNS = defaultDNSConfigWithCustom(geositePath, customDNS, geositeDNSRule)
-	config.Routing = buildRoutingConfig(geositeRules, geoipRules, routingMode, vpnMode)
+	config.Routing = buildRoutingConfig(geositeRules, geoipRules, routingMode)
 
 	security := query.Get("security")
 	if security == "" {
@@ -1533,7 +1506,7 @@ func parseTrojan(rawURL string, httpPort, socksPort uint16, geositePath string, 
 	return config, nil
 }
 
-func parseVmess(rawURL string, httpPort, socksPort uint16, geositePath string, customDNS *DNSConfig, geositeDNSRule *GeositeDNSRule, geositeRules []GeositeRule, geoipRules []GeoipRule, routingMode string, vpnMode bool) (*OutputConfig, error) {
+func parseVmess(rawURL string, httpPort, socksPort uint16, geositePath string, customDNS *DNSConfig, geositeDNSRule *GeositeDNSRule, geositeRules []GeositeRule, geoipRules []GeoipRule, routingMode string) (*OutputConfig, error) {
 	if !strings.HasPrefix(rawURL, "vmess://") {
 		return nil, fmt.Errorf("vmess: invalid prefix")
 	}
@@ -1551,7 +1524,7 @@ func parseVmess(rawURL string, httpPort, socksPort uint16, geositePath string, c
 	remark, _ := data["ps"].(string)
 
 	config := &OutputConfig{}
-	config.Inbounds = createDefaultInbounds(httpPort, socksPort, vpnMode)
+	config.Inbounds = createDefaultInbounds(httpPort, socksPort)
 	mainOutbound := OutboundConfig{
 		Tag:      "Proxy",
 		Protocol: "vmess",
@@ -1564,7 +1537,7 @@ func parseVmess(rawURL string, httpPort, socksPort uint16, geositePath string, c
 	}
 
 	config.DNS = defaultDNSConfigWithCustom(geositePath, customDNS, geositeDNSRule)
-	config.Routing = buildRoutingConfig(geositeRules, geoipRules, routingMode, vpnMode)
+	config.Routing = buildRoutingConfig(geositeRules, geoipRules, routingMode)
 
 	vnext := VmessVnext{}
 	if add, ok := data["add"].(string); ok {
@@ -1698,9 +1671,9 @@ func parseVmess(rawURL string, httpPort, socksPort uint16, geositePath string, c
 	return config, nil
 }
 
-func parseShadowsocks(rawURL string, httpPort, socksPort uint16, geositePath string, customDNS *DNSConfig, geositeDNSRule *GeositeDNSRule, geositeRules []GeositeRule, geoipRules []GeoipRule, routingMode string, vpnMode bool) (*OutputConfig, error) {
+func parseShadowsocks(rawURL string, httpPort, socksPort uint16, geositePath string, customDNS *DNSConfig, geositeDNSRule *GeositeDNSRule, geositeRules []GeositeRule, geoipRules []GeoipRule, routingMode string) (*OutputConfig, error) {
 	if strings.Contains(rawURL, "plugin=") {
-		return parseShadowsocksPlugin(rawURL, httpPort, socksPort, geositePath, customDNS, geositeDNSRule, geositeRules, geoipRules, routingMode, vpnMode)
+		return parseShadowsocksPlugin(rawURL, httpPort, socksPort, geositePath, customDNS, geositeDNSRule, geositeRules, geoipRules, routingMode)
 	}
 
 	parsedURL, err := url.Parse(rawURL)
@@ -1765,12 +1738,12 @@ func parseShadowsocks(rawURL string, httpPort, socksPort uint16, geositePath str
 		{Protocol: "blackhole", Tag: "Reject"},
 	}
 	config.DNS = defaultDNSConfigWithCustom(geositePath, customDNS, geositeDNSRule)
-	config.Routing = buildRoutingConfig(geositeRules, geoipRules, routingMode, vpnMode)
+	config.Routing = buildRoutingConfig(geositeRules, geoipRules, routingMode)
 
 	return config, nil
 }
 
-func parseShadowsocksPlugin(rawURL string, httpPort, socksPort uint16, geositePath string, customDNS *DNSConfig, geositeDNSRule *GeositeDNSRule, geositeRules []GeositeRule, geoipRules []GeoipRule, routingMode string, vpnMode bool) (*OutputConfig, error) {
+func parseShadowsocksPlugin(rawURL string, httpPort, socksPort uint16, geositePath string, customDNS *DNSConfig, geositeDNSRule *GeositeDNSRule, geositeRules []GeositeRule, geoipRules []GeoipRule, routingMode string) (*OutputConfig, error) {
 	parsedURL, err := url.Parse(rawURL)
 	if err != nil {
 		return nil, fmt.Errorf("shadowsocks: invalid plugin url format: %w", err)
@@ -1831,7 +1804,7 @@ func parseShadowsocksPlugin(rawURL string, httpPort, socksPort uint16, geositePa
 		{Protocol: "blackhole", Tag: "Reject"},
 	}
 	config.DNS = defaultDNSConfigWithCustom(geositePath, customDNS, geositeDNSRule)
-	config.Routing = buildRoutingConfig(geositeRules, geoipRules, routingMode, vpnMode)
+	config.Routing = buildRoutingConfig(geositeRules, geoipRules, routingMode)
 
 	if pluginName == "v2ray-plugin" {
 		config.Outbounds[0].StreamSettings.Network = "ws"

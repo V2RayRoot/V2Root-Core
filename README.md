@@ -7,7 +7,7 @@ traffic statistics, logging, and geo-asset management.
 
 For ABI rules, memory ownership, complete API behavior, configuration schemas,
 and integration examples for C/C++, Python, C#, and Dart/Flutter, see the
-**[Developer Integration Guide](docs/DEVELOPER_GUIDE.md)**.
+**[V2Root Core Wiki](https://github.com/V2RayRoot/V2Root-Core/wiki)**.
 
 > This project is specifically designed, maintained, tested, and released for
 > V2Root-App and V2Root. It is not intended to be a general-purpose replacement
@@ -62,7 +62,7 @@ by `Start` or `Stop` means success.
 | Function | Input arguments | Return value |
 | --- | --- | --- |
 | `FreeCString` | `char* value` | `void`; releases a string returned by this library |
-| `GetStatus` | None | `char*`; `STOPPED`, `STARTING`, `RUNNING`, `RUNNING (VPN)`, `STOPPING`, or `ERROR` |
+| `GetStatus` | None | `char*`; `STOPPED`, `STARTING`, `RUNNING`, or `STOPPING` |
 | `SetLogOutput` | `char* path` | `void`; sets access and error log output paths |
 | `SetLogLevel` | `char* level` | `void`; sets the Xray log level |
 | `Start` | `char* configInput`, `char* optionsJSON` | `char*`; null on success, otherwise an error message |
