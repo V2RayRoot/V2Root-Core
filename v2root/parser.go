@@ -52,16 +52,16 @@ type ShadowsocksSettings struct {
 }
 
 type InboundConfig struct {
-	Port           uint16            `json:"port,omitempty"`
-	Protocol       string            `json:"protocol,omitempty"`
-	Settings       map[string]interface{} `json:"settings,omitempty"`
-	Tag            string            `json:"tag,omitempty"`
-	Type           string            `json:"type,omitempty"`
+	Port     uint16                 `json:"port,omitempty"`
+	Protocol string                 `json:"protocol,omitempty"`
+	Settings map[string]interface{} `json:"settings,omitempty"`
+	Tag      string                 `json:"tag,omitempty"`
+	Type     string                 `json:"type,omitempty"`
 	// TUN-specific fields
-	InterfaceName  string            `json:"interface_name,omitempty"`
-	Stack          string            `json:"stack,omitempty"`
-	Sniffing       *SniffingSettings `json:"sniffing,omitempty"` // Canonical sniffing object
-	MTU            int               `json:"mtu,omitempty"`
+	InterfaceName string            `json:"interface_name,omitempty"`
+	Stack         string            `json:"stack,omitempty"`
+	Sniffing      *SniffingSettings `json:"sniffing,omitempty"` // Canonical sniffing object
+	MTU           int               `json:"mtu,omitempty"`
 }
 
 type SniffingSettings struct {
@@ -193,18 +193,18 @@ type RoutingRule struct {
 }
 
 type ParseOptions struct {
-	GeositePath   string         `json:"geositePath"`
-	GeositeFile   string         `json:"geositeFile"`
-	DNSConfig     *DNSConfig     `json:"dnsConfig,omitempty"`
-	GeositeDomain string         `json:"geositeDomain,omitempty"`
-	GeositeDNS    string         `json:"geositeDNS,omitempty"`
-	HTTPPort      int            `json:"httpPort,omitempty"`
-	SOCKSPort     int            `json:"socksPort,omitempty"`
-	VPNMode       bool           `json:"vpn_mode,omitempty"`
-	RoutingMode   string         `json:"routingMode,omitempty"`
-	URI           string         `json:"uri"`
-	GeositeRules  []GeositeRule  `json:"geositeRules,omitempty"`
-	GeoipRules    []GeoipRule    `json:"geoipRules,omitempty"`
+	GeositePath   string        `json:"geositePath"`
+	GeositeFile   string        `json:"geositeFile"`
+	DNSConfig     *DNSConfig    `json:"dnsConfig,omitempty"`
+	GeositeDomain string        `json:"geositeDomain,omitempty"`
+	GeositeDNS    string        `json:"geositeDNS,omitempty"`
+	HTTPPort      int           `json:"httpPort,omitempty"`
+	SOCKSPort     int           `json:"socksPort,omitempty"`
+	VPNMode       bool          `json:"vpn_mode,omitempty"`
+	RoutingMode   string        `json:"routingMode,omitempty"`
+	URI           string        `json:"uri"`
+	GeositeRules  []GeositeRule `json:"geositeRules,omitempty"`
+	GeoipRules    []GeoipRule   `json:"geoipRules,omitempty"`
 }
 
 type GeositeRule struct {
@@ -218,7 +218,6 @@ type GeoipRule struct {
 	Action      string `json:"action"`
 	OutboundTag string `json:"outboundTag,omitempty"`
 }
-
 
 type GeositeDNSRule struct {
 	Domain string
@@ -325,29 +324,29 @@ func getOutboundTag(action, customTag string) string {
 }
 
 func addGeositeRuleIfExists(dnsConfig *DNSConfig, geositePath string, rule *GeositeDNSRule) {
-    if rule == nil || rule.Domain == "" || rule.DNS == "" {
-        return
-    }
-    if geositePath != "" {
-        if _, err := os.Stat(geositePath); err == nil {
-            dnsRule := map[string]interface{}{
-                "address": rule.DNS,
-                "domains": []string{"geosite:" + rule.Domain},
-            }
-            exists := false
-            for _, s := range dnsConfig.Servers {
-                if m, ok := s.(map[string]interface{}); ok {
-                    if m["address"] == rule.DNS && fmt.Sprintf("%v", m["domains"]) == fmt.Sprintf("%v", dnsRule["domains"]) {
-                        exists = true
-                        break
-                    }
-                }
-            }
-            if !exists {
-                dnsConfig.Servers = append([]interface{}{dnsRule}, dnsConfig.Servers...)
-            }
-        }
-    }
+	if rule == nil || rule.Domain == "" || rule.DNS == "" {
+		return
+	}
+	if geositePath != "" {
+		if _, err := os.Stat(geositePath); err == nil {
+			dnsRule := map[string]interface{}{
+				"address": rule.DNS,
+				"domains": []string{"geosite:" + rule.Domain},
+			}
+			exists := false
+			for _, s := range dnsConfig.Servers {
+				if m, ok := s.(map[string]interface{}); ok {
+					if m["address"] == rule.DNS && fmt.Sprintf("%v", m["domains"]) == fmt.Sprintf("%v", dnsRule["domains"]) {
+						exists = true
+						break
+					}
+				}
+			}
+			if !exists {
+				dnsConfig.Servers = append([]interface{}{dnsRule}, dnsConfig.Servers...)
+			}
+		}
+	}
 }
 
 func createDefaultInbounds(httpPort, socksPort uint16, vpnMode bool) []InboundConfig {
@@ -396,7 +395,6 @@ func buildRoutingConfig(geositeRules []GeositeRule, geoipRules []GeoipRule, defa
 	}
 
 	rules := []RoutingRule{}
-
 
 	for _, gr := range geositeRules {
 		domain := gr.Domain
@@ -473,7 +471,7 @@ func Parse(optionsJSON *C.char) *C.char {
 	if opts.SOCKSPort > 0 {
 		socksPort = uint16(opts.SOCKSPort)
 	}
-	
+
 	routingMode := opts.RoutingMode
 	if routingMode == "" {
 		routingMode = "proxy"
@@ -508,10 +506,10 @@ func Parse(optionsJSON *C.char) *C.char {
 		fmt.Fprintf(os.Stderr, "Error marshaling config: %v\n", err)
 		return C.CString("")
 	}
-	
+
 	// Debug: print config
 	// fmt.Fprintf(os.Stderr, "[DEBUG] Generated Config:\n%s\n", string(b))
-	
+
 	return C.CString(string(b))
 }
 
@@ -783,6 +781,12 @@ func JSONToConfigString(configJSON *C.char) *C.char {
 	}
 	if firstOutbound.Protocol == "" {
 		firstOutbound = config.Outbounds[0]
+	}
+	if firstOutbound.StreamSettings == nil {
+		firstOutbound.StreamSettings = &StreamSettings{
+			Network:  "tcp",
+			Security: "none",
+		}
 	}
 
 	var uri string
@@ -1873,7 +1877,6 @@ func parseShadowsocksPlugin(rawURL string, httpPort, socksPort uint16, geositePa
 
 	return config, nil
 }
-
 
 func mustParsePort(portStr string) uint16 {
 	if portStr == "" {
