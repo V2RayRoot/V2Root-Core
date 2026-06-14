@@ -9,9 +9,9 @@ before publishing a release:
   and memory-release paths.
 - `verify_windows_exports.py` inspects the Windows DLL export table and fails if
   any public API symbol is missing.
-- `validate_release_artifacts.py` checks all expected architectures, ZIP
-  contents, internal manifests, individual `.sha256` files, and the aggregate
-  `SHA256SUMS` manifest.
+- `validate_release_artifacts.py` checks all expected architecture ZIPs,
+  validates their contents and internal `SHA256SUMS`, and rejects any loose
+  non-ZIP release file.
 
 Run the Linux suite from the repository root after building the library:
 

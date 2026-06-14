@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Package platform builds and generate per-file and aggregate checksums."""
+"""Package platform builds as self-contained ZIP release assets."""
 
 from __future__ import annotations
 
@@ -38,7 +38,6 @@ def main() -> None:
     args = parser.parse_args()
     dist = args.dist.resolve()
 
-    raw_files: list[Path] = []
     zip_files: list[Path] = []
     for operating_system, architecture, extension in TARGETS:
         binary = dist / f"xray-{operating_system}-{architecture}.{extension}"
@@ -46,8 +45,6 @@ def main() -> None:
         for path in (binary, header):
             if not path.is_file() or path.stat().st_size == 0:
                 raise SystemExit(f"Missing or empty build artifact: {path}")
-        raw_files.extend((binary, header))
-
         package_name = (
             f"V2Root-Core-{operating_system}-{architecture}-{args.version}"
         )
@@ -70,17 +67,9 @@ def main() -> None:
         shutil.rmtree(package_dir)
         zip_files.append(zip_path)
 
-    release_files = raw_files + zip_files
-    for path in release_files:
-        (dist / f"{path.name}.sha256").write_text(
-            checksum_line(path), encoding="ascii", newline="\n"
-        )
-
-    (dist / "SHA256SUMS").write_text(
-        "".join(checksum_line(path) for path in sorted(release_files)),
-        encoding="ascii",
-        newline="\n",
-    )
+    for operating_system, architecture, extension in TARGETS:
+        (dist / f"xray-{operating_system}-{architecture}.{extension}").unlink()
+        (dist / f"xray-{operating_system}-{architecture}.h").unlink()
 
 
 if __name__ == "__main__":

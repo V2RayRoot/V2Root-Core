@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate release files, ZIP contents, and all SHA-256 manifests."""
+"""Validate that release staging contains only complete platform ZIP files."""
 
 from __future__ import annotations
 
@@ -20,10 +20,6 @@ CHECKSUM_PATTERN = re.compile(r"^([0-9a-f]{64})  (.+)$")
 
 def digest_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
-
-
-def digest_file(path: Path) -> str:
-    return digest_bytes(path.read_bytes())
 
 
 def parse_manifest(content: str) -> dict[str, str]:
@@ -51,7 +47,7 @@ def main() -> None:
             f"V2Root-Core-{operating_system}-{architecture}-{args.version}"
         )
         zip_name = f"{package_name}.zip"
-        expected_release_files.update((binary_name, header_name, zip_name))
+        expected_release_files.add(zip_name)
 
         with zipfile.ZipFile(dist / zip_name) as archive:
             expected_members = {
@@ -68,18 +64,15 @@ def main() -> None:
                     archive.read(f"{package_name}/{filename}")
                 )
 
-    aggregate = parse_manifest((dist / "SHA256SUMS").read_text(encoding="ascii"))
-    assert set(aggregate) == expected_release_files
-    for filename in expected_release_files:
-        assert aggregate[filename] == digest_file(dist / filename)
-        individual = parse_manifest(
-            (dist / f"{filename}.sha256").read_text(encoding="ascii")
-        )
-        assert individual == {filename: aggregate[filename]}
+    actual_release_files = {path.name for path in dist.iterdir() if path.is_file()}
+    assert actual_release_files == expected_release_files, (
+        f"Release staging contains unexpected files: "
+        f"{sorted(actual_release_files - expected_release_files)}"
+    )
 
     print(
-        f"PASS: validated {len(expected_release_files)} release files, "
-        "all ZIP contents, and all SHA-256 manifests"
+        f"PASS: validated {len(expected_release_files)} ZIP-only release assets, "
+        "their contents, and internal SHA-256 manifests"
     )
 
 

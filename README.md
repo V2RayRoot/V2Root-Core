@@ -82,19 +82,14 @@ Each automated release contains:
 
 | Asset | Platform |
 | --- | --- |
-| `xray-linux-amd64.so` | Linux amd64 shared library |
-| `xray-linux-amd64.h` | Linux C header |
-| `xray-linux-arm64.so` | Linux arm64 shared library |
-| `xray-linux-arm64.h` | Linux C header |
-| `xray-linux-386.so` | Linux 32-bit x86 shared library |
-| `xray-linux-386.h` | Linux C header |
-| `xray-windows-amd64.dll` | Windows amd64 shared library |
-| `xray-windows-amd64.h` | Windows C header |
-| `xray-windows-386.dll` | Windows 32-bit x86 shared library |
-| `xray-windows-386.h` | Windows C header |
-| `V2Root-Core-<os>-<arch>-<version>.zip` | Platform package containing its binary, header, and internal `SHA256SUMS` |
-| `<artifact>.sha256` | Individual checksum for each binary, header, and ZIP |
-| `SHA256SUMS` | Aggregate checksum manifest for every binary, header, and ZIP |
+| `V2Root-Core-linux-amd64-<version>.zip` | Linux amd64 binary, C header, and internal `SHA256SUMS` |
+| `V2Root-Core-linux-arm64-<version>.zip` | Linux arm64 binary, C header, and internal `SHA256SUMS` |
+| `V2Root-Core-linux-386-<version>.zip` | Linux 32-bit x86 binary, C header, and internal `SHA256SUMS` |
+| `V2Root-Core-windows-amd64-<version>.zip` | Windows amd64 DLL, C header, and internal `SHA256SUMS` |
+| `V2Root-Core-windows-386-<version>.zip` | Windows 32-bit x86 DLL, C header, and internal `SHA256SUMS` |
+
+Only ZIP packages are uploaded to GitHub Releases. Raw binaries, headers, and
+standalone checksum files remain internal to the build pipeline.
 
 ## Quality Gates
 
@@ -105,7 +100,7 @@ A release is published only when every quality gate below passes:
 | Compilation | Every supported Linux and Windows target compiles from the exact upstream Xray tag with CGO enabled. | No Release is created if any architecture fails to build. |
 | API smoke tests | The compiled Linux amd64 library is loaded dynamically and every exported C function is called, including lifecycle, parser, validation, latency, statistics, logging, asset-update error handling, and memory release. | A crash, invalid response, missing behavior, or failed assertion blocks the Release. |
 | Windows export verification | The export tables of both Windows DLLs contain the complete public C API. | A DLL with any missing exported function is rejected. |
-| Artifact validation | Every expected binary and header exists and is non-empty; every ZIP contains the correct binary, header, and internal checksum manifest; every individual and aggregate SHA-256 checksum is recalculated and compared. | Missing, empty, incorrectly packaged, or corrupted files block the Release. |
+| Artifact validation | Every ZIP contains the correct non-empty binary, header, and internal checksum manifest; each internal SHA-256 value is recalculated and compared; release staging must contain ZIP files only. | Missing, empty, incorrectly packaged, corrupted, or unexpected loose files block the Release. |
 
 In practical terms, “the release is blocked” means GitHub Actions stops before
 the publication job. No partial or untested GitHub Release is uploaded. Test

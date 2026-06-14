@@ -233,7 +233,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: v2root-${{ needs.discover.outputs.xray_tag }}
-          path: xray-core/dist/*
+          path: xray-core/dist/*.zip
           if-no-files-found: error
 
   release:
@@ -288,7 +288,7 @@ jobs:
           EOF
           )"
 
-          gh release create "$RELEASE_TAG" dist/* \
+          gh release create "$RELEASE_TAG" dist/*.zip \
             --repo "$GITHUB_REPOSITORY" \
             --title "V2Root for Xray ${XRAY_TAG}" \
             --notes "$notes" \
