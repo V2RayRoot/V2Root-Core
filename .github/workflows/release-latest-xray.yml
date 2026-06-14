@@ -115,6 +115,15 @@ jobs:
             dist/xray-windows-amd64.dll \
             > dist/SHA256SUMS
 
+      - name: Test every exported API function
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 v2root-core/tests/smoke_shared_library.py \
+            xray-core/dist/xray-linux-amd64.so
+          python3 v2root-core/tests/verify_windows_exports.py \
+            xray-core/dist/xray-windows-amd64.dll
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -132,11 +141,36 @@ jobs:
     if: needs.discover.outputs.should_build == 'true'
     runs-on: ubuntu-latest
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
           name: v2root-${{ needs.discover.outputs.xray_tag }}
           path: dist
+
+      - name: Update README release metadata
+        env:
+          XRAY_TAG: ${{ needs.discover.outputs.xray_tag }}
+          RELEASE_TAG: ${{ needs.discover.outputs.release_tag }}
+          TZ: Asia/Tehran
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_time="$(date '+%Y-%m-%d %H:%M %Z')"
+          python3 scripts/update_release_metadata.py \
+            --xray-version "$XRAY_TAG" \
+            --release-tag "$RELEASE_TAG" \
+            --build-time-tehran "$build_time"
+
+          if ! git diff --quiet -- README.md; then
+            git config user.name "v2rayroot"
+            git config user.email "v2rayroot@users.noreply.github.com"
+            git add README.md
+            git commit -m "docs: record ${RELEASE_TAG} build"
+            git push
+          fi
 
       - name: Publish GitHub release
         env:

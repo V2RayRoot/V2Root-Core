@@ -1,5 +1,8 @@
 package main
 
+/*
+#include <stdlib.h>
+*/
 import "C"
 
 import (
@@ -18,6 +21,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unsafe"
 
 	"github.com/xtls/xray-core/app/stats/command"
 	"github.com/xtls/xray-core/common/cmdarg"
@@ -44,6 +48,13 @@ var (
 	version     = "1.0.0-beta"
 	releaseDate = "2025-10-31"
 )
+
+//export FreeCString
+func FreeCString(value *C.char) {
+	if value != nil {
+		C.free(unsafe.Pointer(value))
+	}
+}
 
 //export GetStatus
 func GetStatus() *C.char {
