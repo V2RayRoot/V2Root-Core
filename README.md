@@ -20,7 +20,7 @@ and integration examples for C/C++, Python, C#, and Dart/Flutter, see the
 | --- | --- |
 | Latest Xray version built | `v26.3.27` |
 | V2Root release tag | [`v2root-v26.3.27`](https://github.com/V2RayRoot/V2Root-Core/releases/tag/v2root-v26.3.27) |
-| Build time (Tehran) | `2026-06-14 23:32:00 +0330` |
+| Build time (Tehran) | `2026-06-15 03:11:21 +0330` |
 | Build status | Tested and released automatically |
 <!-- release-metadata:end -->
 
