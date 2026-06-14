@@ -39,10 +39,10 @@ version is available, it:
 10. Publishes a tested GitHub Release.
 11. Updates this README with the version and Tehran build time.
 
-Every workflow run performs a build, even when the latest Xray version has not
-changed. The first build uses `v2root-<xray-tag>`; later builds of the same Xray
-version use immutable tags such as `v2root-<xray-tag>-build-<run-number>`.
-Existing tags and releases are never deleted or overwritten.
+The workflow builds only when the latest stable Xray version does not already
+have a `v2root-<xray-tag>` release. If that release exists, the run reports a
+clean skipped status and performs no compilation or publication. Existing tags
+and releases are never deleted or overwritten.
 
 Workflow progress is reported to Telegram by editing one status message. At the
 end of the run, the workflow also uploads a complete build and test report as a

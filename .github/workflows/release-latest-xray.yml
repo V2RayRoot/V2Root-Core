@@ -38,10 +38,11 @@ jobs:
             gh api repos/XTLS/Xray-core/releases/latest --jq '.tag_name'
           )"
           release_tag="v2root-${xray_tag}"
+          should_build=true
 
           if gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${release_tag}" \
                >/dev/null 2>&1; then
-            release_tag="${release_tag}-build-${GITHUB_RUN_NUMBER}"
+            should_build=false
           fi
           build_time_tehran="$(TZ=Asia/Tehran date '+%Y-%m-%d %H:%M:%S %z')"
           build_code_version="$GITHUB_RUN_NUMBER"
@@ -49,14 +50,14 @@ jobs:
           {
             echo "xray_tag=$xray_tag"
             echo "release_tag=$release_tag"
-            echo "should_build=true"
+            echo "should_build=$should_build"
             echo "build_code_version=$build_code_version"
             echo "build_time_tehran=$build_time_tehran"
           } >> "$GITHUB_OUTPUT"
 
           echo "Latest Xray: $xray_tag"
           echo "V2Root release: $release_tag"
-          echo "Build required: true"
+          echo "Build required: $should_build"
 
       - name: Send Telegram start notification
         id: telegram
@@ -65,16 +66,22 @@ jobs:
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           XRAY_TAG: ${{ steps.release.outputs.xray_tag }}
           RELEASE_TAG: ${{ steps.release.outputs.release_tag }}
+          SHOULD_BUILD: ${{ steps.release.outputs.should_build }}
         shell: bash
         run: |
           set -euo pipefail
-          text="V2Root build started
+          if [[ "$SHOULD_BUILD" == "true" ]]; then
+            status="New Xray version found; build is starting"
+          else
+            status="Skipped; this Xray version already has a release"
+          fi
+          text="V2Root release check
           Repository: ${GITHUB_REPOSITORY}
           Xray: ${XRAY_TAG}
           Release: ${RELEASE_TAG}
           Run: #${GITHUB_RUN_NUMBER}
           Trigger: ${GITHUB_EVENT_NAME}
-          Status: discovering and preparing
+          Status: ${status}
           ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           message_id="$(
             python3 scripts/telegram_notify.py send --text "$text"
@@ -314,6 +321,7 @@ jobs:
           DISCOVER_RESULT: ${{ needs.discover.result }}
           BUILD_RESULT: ${{ needs.build.result }}
           RELEASE_RESULT: ${{ needs.release.result }}
+          SHOULD_BUILD: ${{ needs.discover.outputs.should_build }}
           XRAY_TAG: ${{ needs.discover.outputs.xray_tag }}
           RELEASE_TAG: ${{ needs.discover.outputs.release_tag }}
         shell: bash
@@ -331,6 +339,7 @@ jobs:
             echo "Actor: ${GITHUB_ACTOR}"
             echo "Xray version: ${XRAY_TAG}"
             echo "Release tag: ${RELEASE_TAG}"
+            echo "Build required: ${SHOULD_BUILD}"
             echo "Discover: ${DISCOVER_RESULT}"
             echo "Build and tests: ${BUILD_RESULT}"
             echo "Release: ${RELEASE_RESULT}"
@@ -350,10 +359,13 @@ jobs:
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           BUILD_RESULT: ${{ needs.build.result }}
           RELEASE_RESULT: ${{ needs.release.result }}
+          SHOULD_BUILD: ${{ needs.discover.outputs.should_build }}
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "$BUILD_RESULT" == "success" && "$RELEASE_RESULT" == "success" ]]; then
+          if [[ "$SHOULD_BUILD" != "true" ]]; then
+            status="SKIPPED - release already exists"
+          elif [[ "$BUILD_RESULT" == "success" && "$RELEASE_RESULT" == "success" ]]; then
             status="SUCCESS"
           else
             status="FAILED"
